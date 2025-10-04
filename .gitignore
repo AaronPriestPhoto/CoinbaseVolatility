@@ -133,8 +133,9 @@ dmypy.json
 *.xlsx
 *.csv
 !example_output.csv
-!volatility.csv
-!volatility.xlsx
+# Keep volatility output files local (not tracked)
+volatility.csv
+volatility.xlsx
 
 # IDE files
 .vscode/
