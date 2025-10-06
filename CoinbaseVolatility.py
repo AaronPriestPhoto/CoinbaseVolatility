@@ -15,6 +15,15 @@ from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 
 # ----------------------------
+# Self-contained script setup
+# ----------------------------
+# Ensure script runs from its own directory (useful for StreamDeck, etc.)
+script_dir = os.path.dirname(os.path.abspath(__file__))
+os.chdir(script_dir)
+if script_dir not in sys.path:
+    sys.path.insert(0, script_dir)
+
+# ----------------------------
 # Config
 # ----------------------------
 BASE_URL = "https://api.exchange.coinbase.com"
