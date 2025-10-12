@@ -19,8 +19,8 @@ A Python script that analyzes Coinbase trading pairs to find coins with high vol
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/coinbase-volatility-analyzer.git
-cd coinbase-volatility-analyzer
+git clone https://github.com/AaronPriestPhoto/CoinbaseVolatility.git
+cd CoinbaseVolatility
 ```
 
 2. Install dependencies:
