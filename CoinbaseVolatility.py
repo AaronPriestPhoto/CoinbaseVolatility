@@ -512,16 +512,33 @@ def get_30min_candles(pair: str, start: datetime, end: datetime):
         "end": iso_format(end),
         "granularity": 1800,  # 30 minutes = 1800 seconds
     }
-    resp = requests.get(url, headers=HEADERS, params=params, timeout=30)
-    resp.raise_for_status()
-    data = resp.json()
+    
+    try:
+        resp = requests.get(url, headers=HEADERS, params=params, timeout=30)
+        
+        # Handle specific error cases
+        if resp.status_code == 400:
+            # Try with 1-hour granularity as fallback
+            params["granularity"] = 3600  # 1 hour = 3600 seconds
+            resp = requests.get(url, headers=HEADERS, params=params, timeout=30)
+            if resp.status_code != 200:
+                raise requests.HTTPError(f"400 Bad Request for {pair} - both 30min and 1hour granularities failed")
+        
+        resp.raise_for_status()
+        data = resp.json()
 
-    if not isinstance(data, list):
-        msg = data.get("message", "Unknown error format")
-        raise RuntimeError(f"Candles error for {pair}: {msg}")
+        if not isinstance(data, list):
+            msg = data.get("message", "Unknown error format")
+            raise RuntimeError(f"Candles error for {pair}: {msg}")
 
-    data.sort(key=lambda r: r[0])  # oldest -> newest
-    return data
+        data.sort(key=lambda r: r[0])  # oldest -> newest
+        return data
+        
+    except requests.HTTPError as e:
+        if "400" in str(e):
+            # Return empty data for pairs that don't support the granularity
+            return []
+        raise
 
 
 def get_supertrend_stats(pair: str, start: datetime, end: datetime, factor=3, atr_length=10):
@@ -773,13 +790,16 @@ def main(volatility_threshold: float = 2.0, days: int = 90, output_file: str = "
                 tqdm.write(f"  Analyzing SuperTrend sessions...")
                 try:
                     supertrend_stats = get_supertrend_stats(pair, start_date, end_date)
-                    tqdm.write(f"  SuperTrend: {supertrend_stats['total_sessions']} sessions, "
-                              f"Avg Long: {supertrend_stats['avg_long_session_pct']:.2f}%, "
-                              f"Max Long: {supertrend_stats['max_long_session_pct']:.2f}%, "
-                              f"Avg Short: {supertrend_stats['avg_short_session_pct']:.2f}%, "
-                              f"Max Short: {supertrend_stats['max_short_session_pct']:.2f}%")
+                    if supertrend_stats['total_sessions'] > 0:
+                        tqdm.write(f"  SuperTrend: {supertrend_stats['total_sessions']} sessions, "
+                                  f"Avg Long: {supertrend_stats['avg_long_session_pct']:.2f}%, "
+                                  f"Max Long: {supertrend_stats['max_long_session_pct']:.2f}%, "
+                                  f"Avg Short: {supertrend_stats['avg_short_session_pct']:.2f}%, "
+                                  f"Max Short: {supertrend_stats['max_short_session_pct']:.2f}%")
+                    else:
+                        tqdm.write(f"  SuperTrend: No sufficient data for analysis (insufficient granularity or data)")
                 except Exception as e:
-                    tqdm.write(f"  Warning: could not calculate SuperTrend for {pair}: {e}")
+                    tqdm.write(f"  SuperTrend: No data available for {pair} (API limitation)")
                     supertrend_stats = {
                         'avg_long_session_pct': 0.0,
                         'max_long_session_pct': 0.0,
