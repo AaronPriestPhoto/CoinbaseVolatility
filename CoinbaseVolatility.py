@@ -134,7 +134,7 @@ def create_excel_file(output_file: str) -> Workbook:
     ws.title = "Volatility Analysis"
     
     # Add headers
-    headers = ["Pair", "Volatility", "Volume", "MinFunds", "AvgLong%", "MaxLong%", "AvgShort%", "MaxShort%", "Sessions"]
+    headers = ["Pair", "Volatility", "Volume", "MinFunds", "MedLong%", "MaxLong%", "MedShort%", "MaxShort%", "Sessions"]
     for col, header in enumerate(headers, 1):
         cell = ws.cell(row=1, column=col, value=header)
         cell.font = Font(bold=True, color="FFFFFF")
@@ -263,7 +263,7 @@ def sort_excel_by_volatility(wb: Workbook) -> None:
 
 def save_to_csv(pair: str, median_pct_change: float, volume: float, min_order_size, supertrend_stats: dict, output_file: str) -> bool:
     """Save data to CSV file with safe file handling. Returns True if successful, False if cancelled."""
-    header = ["Pair", "Volatility", "Volume", "MinFunds", "AvgLong%", "MaxLong%", "AvgShort%", "MaxShort%", "Sessions"]
+    header = ["Pair", "Volatility", "Volume", "MinFunds", "MedLong%", "MaxLong%", "MedShort%", "MaxShort%", "Sessions"]
     file_exists = os.path.exists(output_file)
     
     def write_operation():
@@ -488,15 +488,15 @@ def analyze_supertrend_sessions(high, low, close, supertrend_line, trend_directi
                 short_session_changes.append(session_change)
     
     # Calculate statistics
-    avg_long = float(np.mean(long_session_changes)) if long_session_changes else 0.0
+    median_long = float(np.median(long_session_changes)) if long_session_changes else 0.0
     max_long = float(np.max(long_session_changes)) if long_session_changes else 0.0
-    avg_short = float(np.mean(short_session_changes)) if short_session_changes else 0.0
+    median_short = float(np.median(short_session_changes)) if short_session_changes else 0.0
     max_short = float(np.max(short_session_changes)) if short_session_changes else 0.0
     
     return {
-        'avg_long_session_pct': avg_long,
+        'avg_long_session_pct': median_long,
         'max_long_session_pct': max_long,
-        'avg_short_session_pct': avg_short,
+        'avg_short_session_pct': median_short,
         'max_short_session_pct': max_short,
         'total_sessions': len(long_session_changes) + len(short_session_changes),
         'long_sessions': len(long_session_changes),
@@ -882,9 +882,9 @@ def main(volatility_threshold: float = 2.0, days: int = 90, output_file: str = "
                     
                     if supertrend_stats['total_sessions'] > 0:
                         tqdm.write(f"  SuperTrend: {supertrend_stats['total_sessions']} sessions, "
-                                  f"Avg Long: {supertrend_stats['avg_long_session_pct']:.2f}%, "
+                                  f"Med Long: {supertrend_stats['avg_long_session_pct']:.2f}%, "
                                   f"Max Long: {supertrend_stats['max_long_session_pct']:.2f}%, "
-                                  f"Avg Short: {supertrend_stats['avg_short_session_pct']:.2f}%, "
+                                  f"Med Short: {supertrend_stats['avg_short_session_pct']:.2f}%, "
                                   f"Max Short: {supertrend_stats['max_short_session_pct']:.2f}%")
                     else:
                         tqdm.write(f"  SuperTrend: No sufficient data for analysis")
