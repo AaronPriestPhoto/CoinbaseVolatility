@@ -173,6 +173,7 @@ The script includes advanced SuperTrend analysis for qualifying trading pairs:
 - **Timeframe**: 30-minute candles
 - **Factor**: 3 (SuperTrend multiplier)
 - **ATR Length**: 10 periods
+- **ATR Method**: RMA (Wilder's smoothing) - matches TradingView default
 - **Analysis Period**: Same as volatility analysis (90 days default)
 
 ### Session Analysis
@@ -243,6 +244,7 @@ If you encounter any issues or have questions:
 
 ### v3.0.0
 - **SuperTrend Analysis** with 30-minute candles (Factor 3, ATR Length 10)
+- **TradingView Compatible** - Uses RMA (Wilder's smoothing) for ATR calculation
 - **Trading Session Metrics** - Median and maximum % changes in SuperTrend sessions
 - **Enhanced Output** with 5 new SuperTrend columns (MedLong%, MaxLong%, MedShort%, MaxShort%, Sessions)
 - **Data Efficiency** - SuperTrend analysis only for qualifying pairs

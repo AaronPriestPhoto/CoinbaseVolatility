@@ -315,7 +315,7 @@ def sort_csv_by_median(output_file: str) -> bool:
 # SuperTrend Analysis
 # ----------------------------
 def calculate_atr(high, low, close, length=10):
-    """Calculate Average True Range (ATR) for SuperTrend calculation."""
+    """Calculate Average True Range (ATR) for SuperTrend calculation using RMA (Wilder's smoothing)."""
     if len(high) < length + 1:
         return None
     
@@ -326,11 +326,19 @@ def calculate_atr(high, low, close, length=10):
         tr3 = abs(low[i] - close[i-1])
         tr_list.append(max(tr1, tr2, tr3))
     
-    # Calculate ATR using simple moving average
+    # Calculate ATR using RMA (Wilder's smoothing) - matches TradingView default
     atr_values = []
-    for i in range(length-1, len(tr_list)):
-        atr = sum(tr_list[i-length+1:i+1]) / length
-        atr_values.append(atr)
+    
+    # First ATR value is simple average
+    first_atr = sum(tr_list[:length]) / length
+    atr_values.append(first_atr)
+    
+    # Subsequent values use RMA formula: RMA = (RMA_prev * (length-1) + current_value) / length
+    for i in range(length, len(tr_list)):
+        prev_atr = atr_values[-1]
+        current_tr = tr_list[i]
+        rma_atr = (prev_atr * (length - 1) + current_tr) / length
+        atr_values.append(rma_atr)
     
     return atr_values
 
