@@ -725,7 +725,7 @@ def get_daily_ohlc(pair: str, start: datetime, end: datetime):
 # ----------------------------
 # Main
 # ----------------------------
-def main(volatility_threshold: float = 2.0, days: int = 90, output_file: str = "volatility.xlsx", volume_threshold: float = 1000000.0, output_format: str = "excel", quote_currency: str = "USD"):
+def main(volatility_threshold: float = 2.0, days: int = 90, output_file: str = "volatility.xlsx", volume_threshold: float = 1000000.0, output_format: str = "excel", quote_currency: str = "USD", supertrend_count: int = 0):
     try:
         # Normalize quote currency to uppercase for consistency
         quote_currency = quote_currency.upper()
@@ -740,7 +740,10 @@ def main(volatility_threshold: float = 2.0, days: int = 90, output_file: str = "
         print(f"Quote currency: {quote_currency}")
         print(f"Output format: {output_format.upper()}")
         print(f"Output file: {output_file}")
-        print("📊 SuperTrend Analysis: 30-min candles, Factor 3, ATR Length 10")
+        if supertrend_count > 0:
+            print(f"📊 SuperTrend Analysis: Top {supertrend_count} coins, 30-min candles, Factor 3, ATR Length 10")
+        else:
+            print("📊 SuperTrend Analysis: Disabled (use --supertrend N to enable)")
         print("Press Ctrl+C at any time to cancel the operation, or type 'q' when prompted.\n")
         
         # Safely remove existing file if it exists
@@ -751,16 +754,14 @@ def main(volatility_threshold: float = 2.0, days: int = 90, output_file: str = "
         active_pairs = get_active_pairs(quote_currency)
         print(f"Found {len(active_pairs)} active -{quote_currency} pairs.")
 
-        # Initialize output file based on format
-        if output_format == "excel":
-            wb = create_excel_file(output_file)
-        else:
-            wb = None  # CSV mode
-
-        # Create progress bar
+        # Phase 1: Collect all qualifying pairs with daily data
+        print("\n🔍 Phase 1: Analyzing daily volatility and volume...")
+        qualifying_pairs = []
+        
+        # Create progress bar for Phase 1
         progress_bar = tqdm(
             total=len(active_pairs),
-            desc="Processing pairs",
+            desc="Phase 1: Daily Analysis",
             unit="pair",
             bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]",
             position=0,
@@ -788,7 +789,7 @@ def main(volatility_threshold: float = 2.0, days: int = 90, output_file: str = "
 
                 median_pct = float(np.median(pct_changes)) if pct_changes else 0.0
 
-                # NEW: Exclude under-threshold medians
+                # Exclude under-threshold medians
                 if median_pct < volatility_threshold:
                     tqdm.write(f"  Skipping {pair}: median {median_pct:.4f}% < {volatility_threshold:.2f}% threshold.")
                     progress_bar.update(1)
@@ -805,7 +806,7 @@ def main(volatility_threshold: float = 2.0, days: int = 90, output_file: str = "
                     tqdm.write(f"  Warning: could not fetch volume for {pair}: {e}")
                     median_volume = 0.0
 
-                # NEW: Exclude under-threshold volumes
+                # Exclude under-threshold volumes
                 if median_volume < volume_threshold:
                     tqdm.write(f"  Skipping {pair}: median volume {median_volume:,.2f} < {volume_threshold:,.0f} threshold.")
                     progress_bar.update(1)
@@ -819,21 +820,13 @@ def main(volatility_threshold: float = 2.0, days: int = 90, output_file: str = "
                     tqdm.write(f"  Warning: could not fetch min_market_funds for {pair}: {e}")
                     min_mkt_funds = "N/A"
 
-                # Get SuperTrend analysis (only for qualifying pairs)
-                tqdm.write(f"  Fetching 30-minute candles for SuperTrend analysis...")
-                try:
-                    supertrend_stats = get_supertrend_stats(pair, start_date, end_date)
-                    if supertrend_stats['total_sessions'] > 0:
-                        tqdm.write(f"  SuperTrend: {supertrend_stats['total_sessions']} sessions, "
-                                  f"Avg Long: {supertrend_stats['avg_long_session_pct']:.2f}%, "
-                                  f"Max Long: {supertrend_stats['max_long_session_pct']:.2f}%, "
-                                  f"Avg Short: {supertrend_stats['avg_short_session_pct']:.2f}%, "
-                                  f"Max Short: {supertrend_stats['max_short_session_pct']:.2f}%")
-                    else:
-                        tqdm.write(f"  SuperTrend: No sufficient data for analysis")
-                except Exception as e:
-                    tqdm.write(f"  SuperTrend: No data available for {pair}")
-                    supertrend_stats = {
+                # Store qualifying pair data
+                qualifying_pairs.append({
+                    'pair': pair,
+                    'median_pct': median_pct,
+                    'median_volume': median_volume,
+                    'min_mkt_funds': min_mkt_funds,
+                    'supertrend_stats': {
                         'avg_long_session_pct': 0.0,
                         'max_long_session_pct': 0.0,
                         'avg_short_session_pct': 0.0,
@@ -842,17 +835,9 @@ def main(volatility_threshold: float = 2.0, days: int = 90, output_file: str = "
                         'long_sessions': 0,
                         'short_sessions': 0
                     }
+                })
 
-                # Save data based on format
-                if output_format == "excel":
-                    save_to_excel(pair, median_pct, median_volume, min_mkt_funds, supertrend_stats, wb)
-                else:
-                    if not save_to_csv(pair, median_pct, median_volume, min_mkt_funds, supertrend_stats, output_file):
-                        tqdm.write("❌ Failed to save data. Operation cancelled.")
-                        progress_bar.close()
-                        return
-
-                tqdm.write(f"  ✅ {pair} added to results")
+                tqdm.write(f"  ✅ {pair} qualified for analysis")
 
             except requests.HTTPError as e:
                 tqdm.write(f"HTTP error for {pair}: {e} | Response: {getattr(e, 'response', None)}")
@@ -862,8 +847,75 @@ def main(volatility_threshold: float = 2.0, days: int = 90, output_file: str = "
             progress_bar.update(1)
             time.sleep(RATE_LIMIT_SLEEP)
 
-        # Close progress bar
+        # Close Phase 1 progress bar
         progress_bar.close()
+        
+        print(f"\n✅ Phase 1 Complete: {len(qualifying_pairs)} pairs qualified")
+        
+        # Phase 2: SuperTrend analysis for top N pairs (if enabled)
+        if supertrend_count > 0 and len(qualifying_pairs) > 0:
+            print(f"\n📊 Phase 2: SuperTrend analysis for top {min(supertrend_count, len(qualifying_pairs))} pairs...")
+            
+            # Sort by volatility (highest first) and take top N
+            qualifying_pairs.sort(key=lambda x: x['median_pct'], reverse=True)
+            top_pairs = qualifying_pairs[:supertrend_count]
+            
+            # Create progress bar for Phase 2
+            progress_bar = tqdm(
+                total=len(top_pairs),
+                desc="Phase 2: SuperTrend Analysis",
+                unit="pair",
+                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]",
+                position=0,
+                leave=True,
+                dynamic_ncols=True
+            )
+            
+            for i, pair_data in enumerate(top_pairs, start=1):
+                pair = pair_data['pair']
+                try:
+                    tqdm.write(f"[{i}/{len(top_pairs)}] SuperTrend analysis for {pair} ...")
+                    
+                    # Get SuperTrend analysis
+                    supertrend_stats = get_supertrend_stats(pair, start_date, end_date)
+                    pair_data['supertrend_stats'] = supertrend_stats
+                    
+                    if supertrend_stats['total_sessions'] > 0:
+                        tqdm.write(f"  SuperTrend: {supertrend_stats['total_sessions']} sessions, "
+                                  f"Avg Long: {supertrend_stats['avg_long_session_pct']:.2f}%, "
+                                  f"Max Long: {supertrend_stats['max_long_session_pct']:.2f}%, "
+                                  f"Avg Short: {supertrend_stats['avg_short_session_pct']:.2f}%, "
+                                  f"Max Short: {supertrend_stats['max_short_session_pct']:.2f}%")
+                    else:
+                        tqdm.write(f"  SuperTrend: No sufficient data for analysis")
+                        
+                except Exception as e:
+                    tqdm.write(f"  SuperTrend: No data available for {pair}")
+                
+                progress_bar.update(1)
+                time.sleep(RATE_LIMIT_SLEEP)
+            
+            # Close Phase 2 progress bar
+            progress_bar.close()
+            print(f"✅ Phase 2 Complete: SuperTrend analysis finished")
+        
+        # Initialize output file based on format
+        if output_format == "excel":
+            wb = create_excel_file(output_file)
+        else:
+            wb = None  # CSV mode
+        
+        # Save all qualifying pairs to output
+        print(f"\n💾 Saving {len(qualifying_pairs)} pairs to {output_file}...")
+        for pair_data in qualifying_pairs:
+            if output_format == "excel":
+                save_to_excel(pair_data['pair'], pair_data['median_pct'], pair_data['median_volume'], 
+                            pair_data['min_mkt_funds'], pair_data['supertrend_stats'], wb)
+            else:
+                if not save_to_csv(pair_data['pair'], pair_data['median_pct'], pair_data['median_volume'], 
+                                 pair_data['min_mkt_funds'], pair_data['supertrend_stats'], output_file):
+                    print("❌ Failed to save data. Operation cancelled.")
+                    return
         
         # Finalize output based on format
         if output_format == "excel":
@@ -942,9 +994,15 @@ def parse_arguments():
         default="USD",
         help="Quote currency for trading pairs (e.g., USD, BTC, ETH, USDC, USDT) (default: USD)"
     )
+    parser.add_argument(
+        "--supertrend",
+        type=int,
+        default=0,
+        help="Number of top volatile coins to analyze with SuperTrend (0 = disabled, default: 0)"
+    )
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_arguments()
-    main(volatility_threshold=args.volatility, days=args.days, output_file=args.output, volume_threshold=args.volume, output_format=args.format, quote_currency=args.quote)
+    main(volatility_threshold=args.volatility, days=args.days, output_file=args.output, volume_threshold=args.volume, output_format=args.format, quote_currency=args.quote, supertrend_count=args.supertrend)
