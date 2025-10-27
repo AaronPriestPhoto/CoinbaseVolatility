@@ -6,6 +6,8 @@ A Python script that analyzes Coinbase trading pairs to find coins with high vol
 
 - **Volatility Analysis**: Finds trading pairs with median daily volatility above a specified threshold
 - **Volume Analysis**: Calculates median daily volume for each pair with filtering options
+- **SuperTrend Analysis**: Analyzes 30-minute SuperTrend sessions with Factor 3 and ATR Length 10
+- **Trading Session Metrics**: Calculates average and maximum % changes in SuperTrend sessions
 - **Flexible Time Periods**: Analyze any number of days (30, 90, 365, etc.)
 - **Multiple Quote Currencies**: Support for USD, BTC, ETH, USDC, USDT, and more
 - **Excel & CSV Output**: Professional Excel formatting with auto-sized columns or CSV export
@@ -93,6 +95,11 @@ The script generates Excel (.xlsx) or CSV files with the following columns:
 | `Volatility` | Median daily volatility percentage (2 decimal places) |
 | `Volume` | Median daily volume (formatted with commas) |
 | `MinFunds` | Minimum trade size |
+| `AvgLong%` | Average % rise in SuperTrend long sessions |
+| `MaxLong%` | Maximum % rise in any SuperTrend long session |
+| `AvgShort%` | Average % fall in SuperTrend short sessions |
+| `MaxShort%` | Maximum % fall in any SuperTrend short session |
+| `Sessions` | Total number of SuperTrend sessions in period |
 
 ### Excel Output Features
 
@@ -106,18 +113,18 @@ The script generates Excel (.xlsx) or CSV files with the following columns:
 
 **Excel Format:**
 ```
-Pair        | Volatility | Volume      | MinFunds
-BTC-USD     | 2.46       | 1,234,568   | 10.00
-ETH-USD     | 3.12       | 987,654     | 10.00
-ADA-USD     | 4.57       | 456,789     | 10.00
+Pair        | Volatility | Volume      | MinFunds | AvgLong% | MaxLong% | AvgShort% | MaxShort% | Sessions
+BTC-USD     | 2.46       | 1,234,568   | 10.00    | 3.25     | 8.45      | 2.15      | 5.80      | 12
+ETH-USD     | 3.12       | 987,654     | 10.00    | 4.20     | 9.80      | 2.85      | 6.20      | 15
+ADA-USD     | 4.57       | 456,789     | 10.00    | 5.10     | 12.30     | 3.40      | 7.90      | 18
 ```
 
 **CSV Format:**
 ```csv
-Pair,Volatility,Volume,MinFunds
-BTC-USD,2.46,1,234,568,10.00
-ETH-USD,3.12,987,654,10.00
-ADA-USD,4.57,456,789,10.00
+Pair,Volatility,Volume,MinFunds,AvgLong%,MaxLong%,AvgShort%,MaxShort%,Sessions
+BTC-USD,2.46,1,234,568,10.00,3.25,8.45,2.15,5.80,12
+ETH-USD,3.12,987,654,10.00,4.20,9.80,2.85,6.20,15
+ADA-USD,4.57,456,789,10.00,5.10,12.30,3.40,7.90,18
 ```
 
 ## How It Works
@@ -127,8 +134,10 @@ ADA-USD,4.57,456,789,10.00
 3. **Volatility Calculation**: Calculates median daily volatility (high-low range percentage)
 4. **Volume Analysis**: Calculates median daily volume
 5. **Filtering**: Excludes pairs with insufficient data, low volatility, or low volume
-6. **Export**: Saves results to Excel or CSV, sorted by volatility (highest first)
-7. **Auto-Open**: Automatically opens the output file when complete
+6. **SuperTrend Analysis**: Downloads 30-minute candles and calculates SuperTrend sessions (Factor 3, ATR Length 10)
+7. **Session Metrics**: Calculates average and maximum % changes in SuperTrend long/short sessions
+8. **Export**: Saves results to Excel or CSV, sorted by volatility (highest first)
+9. **Auto-Open**: Automatically opens the output file when complete
 
 ## File Handling
 
@@ -145,6 +154,34 @@ The script includes built-in rate limiting to respect Coinbase's API limits:
 - ~3 requests per second (configurable)
 - Automatic delays between requests
 - Error handling for rate limit responses
+
+## SuperTrend Analysis
+
+The script includes advanced SuperTrend analysis for qualifying trading pairs:
+
+### SuperTrend Configuration
+- **Timeframe**: 30-minute candles
+- **Factor**: 3 (SuperTrend multiplier)
+- **ATR Length**: 10 periods
+- **Analysis Period**: Same as volatility analysis (90 days default)
+
+### Session Analysis
+- **Long Sessions**: Tracks % rise from SuperTrend buy signal to highest point in session
+- **Short Sessions**: Tracks % fall from SuperTrend sell signal to lowest point in session
+- **Session Metrics**: Calculates average and maximum % changes for each session type
+- **Total Sessions**: Counts all SuperTrend signal changes in the analysis period
+
+### Trading Insights
+- **AvgLong%**: Average percentage gain in long SuperTrend sessions
+- **MaxLong%**: Maximum percentage gain in any single long session
+- **AvgShort%**: Average percentage gain in short SuperTrend sessions (fall protection)
+- **MaxShort%**: Maximum percentage gain in any single short session
+- **Sessions**: Total number of SuperTrend signals (indicates trading frequency)
+
+### Data Efficiency
+- SuperTrend analysis is only performed on pairs that pass volatility and volume filters
+- 30-minute data is downloaded only for qualifying pairs to minimize bandwidth usage
+- Analysis uses the same time period as volatility calculations for consistency
 
 ## Requirements
 
@@ -193,6 +230,14 @@ If you encounter any issues or have questions:
 3. Include your Python version and error messages
 
 ## Changelog
+
+### v3.0.0
+- **SuperTrend Analysis** with 30-minute candles (Factor 3, ATR Length 10)
+- **Trading Session Metrics** - Average and maximum % changes in SuperTrend sessions
+- **Enhanced Output** with 5 new SuperTrend columns (AvgLong%, MaxLong%, AvgShort%, MaxShort%, Sessions)
+- **Data Efficiency** - SuperTrend analysis only for qualifying pairs
+- **Self-contained Script** - Works from any directory (StreamDeck compatible)
+- **Comprehensive Documentation** - Detailed SuperTrend analysis explanation
 
 ### v2.0.0
 - **Excel output as default** with professional formatting

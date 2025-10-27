@@ -134,7 +134,7 @@ def create_excel_file(output_file: str) -> Workbook:
     ws.title = "Volatility Analysis"
     
     # Add headers
-    headers = ["Pair", "Volatility", "Volume", "MinFunds"]
+    headers = ["Pair", "Volatility", "Volume", "MinFunds", "AvgLong%", "MaxLong%", "AvgShort%", "MaxShort%", "Sessions"]
     for col, header in enumerate(headers, 1):
         cell = ws.cell(row=1, column=col, value=header)
         cell.font = Font(bold=True, color="FFFFFF")
@@ -144,7 +144,7 @@ def create_excel_file(output_file: str) -> Workbook:
     return wb
 
 
-def save_to_excel(pair: str, median_pct_change: float, volume: float, min_order_size, wb: Workbook) -> None:
+def save_to_excel(pair: str, median_pct_change: float, volume: float, min_order_size, supertrend_stats: dict, wb: Workbook) -> None:
     """Add data row to Excel workbook."""
     ws = wb.active
     row = ws.max_row + 1
@@ -163,6 +163,13 @@ def save_to_excel(pair: str, median_pct_change: float, volume: float, min_order_
             ws.cell(row=row, column=4, value=float(min_order_size))
         except (ValueError, TypeError):
             ws.cell(row=row, column=4, value=0)
+    
+    # Add SuperTrend data
+    ws.cell(row=row, column=5, value=supertrend_stats['avg_long_session_pct'])
+    ws.cell(row=row, column=6, value=supertrend_stats['max_long_session_pct'])
+    ws.cell(row=row, column=7, value=supertrend_stats['avg_short_session_pct'])
+    ws.cell(row=row, column=8, value=supertrend_stats['max_short_session_pct'])
+    ws.cell(row=row, column=9, value=supertrend_stats['total_sessions'])
 
 
 def format_excel_file(wb: Workbook) -> None:
@@ -192,6 +199,13 @@ def format_excel_file(wb: Workbook) -> None:
     # MinFunds column (D) - fixed width for currency
     ws.column_dimensions['D'].width = 12
     
+    # SuperTrend columns (E-I) - fixed widths for percentages and sessions
+    ws.column_dimensions['E'].width = 12  # AvgLong%
+    ws.column_dimensions['F'].width = 12  # MaxLong%
+    ws.column_dimensions['G'].width = 12  # AvgShort%
+    ws.column_dimensions['H'].width = 12  # MaxShort%
+    ws.column_dimensions['I'].width = 10  # Sessions
+    
     # Format specific columns
     # Volatility column (B) - 2 decimal places
     for row in range(2, ws.max_row + 1):
@@ -208,6 +222,17 @@ def format_excel_file(wb: Workbook) -> None:
         cell = ws.cell(row=row, column=4)
         # Use simple number format without currency symbol
         cell.number_format = '0.00'
+    
+    # SuperTrend columns (E-H) - 2 decimal places for percentages
+    for col in range(5, 9):  # Columns E through H
+        for row in range(2, ws.max_row + 1):
+            cell = ws.cell(row=row, column=col)
+            cell.number_format = '0.00'
+    
+    # Sessions column (I) - Integer format
+    for row in range(2, ws.max_row + 1):
+        cell = ws.cell(row=row, column=9)
+        cell.number_format = '0'
 
 
 def sort_excel_by_volatility(wb: Workbook) -> None:
@@ -236,9 +261,9 @@ def sort_excel_by_volatility(wb: Workbook) -> None:
             ws.cell(row=i, column=j, value=value)
 
 
-def save_to_csv(pair: str, median_pct_change: float, volume: float, min_order_size, output_file: str) -> bool:
+def save_to_csv(pair: str, median_pct_change: float, volume: float, min_order_size, supertrend_stats: dict, output_file: str) -> bool:
     """Save data to CSV file with safe file handling. Returns True if successful, False if cancelled."""
-    header = ["Pair", "Volatility", "Volume", "MinFunds"]
+    header = ["Pair", "Volatility", "Volume", "MinFunds", "AvgLong%", "MaxLong%", "AvgShort%", "MaxShort%", "Sessions"]
     file_exists = os.path.exists(output_file)
     
     def write_operation():
@@ -248,7 +273,17 @@ def save_to_csv(pair: str, median_pct_change: float, volume: float, min_order_si
                 writer.writerow(header)
             # Format: Volatility to 2 decimal places, Volume as integer with commas
             formatted_volume = f"{int(volume):,}" if volume > 0 else "0"
-            writer.writerow([pair, f"{median_pct_change:.2f}", formatted_volume, min_order_size])
+            writer.writerow([
+                pair, 
+                f"{median_pct_change:.2f}", 
+                formatted_volume, 
+                min_order_size,
+                f"{supertrend_stats['avg_long_session_pct']:.2f}",
+                f"{supertrend_stats['max_long_session_pct']:.2f}",
+                f"{supertrend_stats['avg_short_session_pct']:.2f}",
+                f"{supertrend_stats['max_short_session_pct']:.2f}",
+                supertrend_stats['total_sessions']
+            ])
         return True
     
     return safe_file_operation(write_operation, output_file, "write to CSV file")
@@ -274,6 +309,282 @@ def sort_csv_by_median(output_file: str) -> bool:
         return True
     
     return safe_file_operation(sort_operation, output_file, "sort CSV file")
+
+
+# ----------------------------
+# SuperTrend Analysis
+# ----------------------------
+def calculate_atr(high, low, close, length=10):
+    """Calculate Average True Range (ATR) for SuperTrend calculation."""
+    if len(high) < length + 1:
+        return None
+    
+    tr_list = []
+    for i in range(1, len(high)):
+        tr1 = high[i] - low[i]
+        tr2 = abs(high[i] - close[i-1])
+        tr3 = abs(low[i] - close[i-1])
+        tr_list.append(max(tr1, tr2, tr3))
+    
+    # Calculate ATR using simple moving average
+    atr_values = []
+    for i in range(length-1, len(tr_list)):
+        atr = sum(tr_list[i-length+1:i+1]) / length
+        atr_values.append(atr)
+    
+    return atr_values
+
+
+def calculate_supertrend(high, low, close, factor=3, atr_length=10):
+    """
+    Calculate SuperTrend indicator.
+    
+    Args:
+        high, low, close: Price arrays
+        factor: SuperTrend factor (default: 3)
+        atr_length: ATR period (default: 10)
+    
+    Returns:
+        tuple: (supertrend_line, trend_direction, signals)
+            - supertrend_line: SuperTrend line values
+            - trend_direction: 1 for uptrend, -1 for downtrend
+            - signals: 1 for buy signal, -1 for sell signal, 0 for no signal
+    """
+    if len(high) < atr_length + 1:
+        return None, None, None
+    
+    # Calculate ATR
+    atr_values = calculate_atr(high, low, close, atr_length)
+    if not atr_values:
+        return None, None, None
+    
+    # Initialize arrays
+    supertrend_line = [None] * len(close)
+    trend_direction = [0] * len(close)
+    signals = [0] * len(close)
+    
+    # Calculate basic upper and lower bands
+    basic_upper = []
+    basic_lower = []
+    
+    for i in range(atr_length, len(close)):
+        atr_idx = i - atr_length
+        basic_upper.append((high[i] + low[i]) / 2 + factor * atr_values[atr_idx])
+        basic_lower.append((high[i] + low[i]) / 2 - factor * atr_values[atr_idx])
+    
+    # Calculate final SuperTrend line
+    for i in range(atr_length, len(close)):
+        basic_upper_idx = i - atr_length
+        basic_lower_idx = i - atr_length
+        
+        # Initial trend direction
+        if i == atr_length:
+            if close[i] <= basic_lower[basic_lower_idx]:
+                trend_direction[i] = -1
+                supertrend_line[i] = basic_lower[basic_lower_idx]
+            else:
+                trend_direction[i] = 1
+                supertrend_line[i] = basic_upper[basic_upper_idx]
+        else:
+            prev_trend = trend_direction[i-1]
+            
+            if prev_trend == 1:
+                # Previous trend was up
+                if basic_lower[basic_lower_idx] > supertrend_line[i-1]:
+                    supertrend_line[i] = basic_lower[basic_lower_idx]
+                else:
+                    supertrend_line[i] = supertrend_line[i-1]
+            else:
+                # Previous trend was down
+                if basic_upper[basic_upper_idx] < supertrend_line[i-1]:
+                    supertrend_line[i] = basic_upper[basic_upper_idx]
+                else:
+                    supertrend_line[i] = supertrend_line[i-1]
+            
+            # Determine current trend direction
+            if close[i] > supertrend_line[i]:
+                trend_direction[i] = 1
+            else:
+                trend_direction[i] = -1
+            
+            # Generate signals
+            if trend_direction[i] != trend_direction[i-1]:
+                if trend_direction[i] == 1:
+                    signals[i] = 1  # Buy signal
+                else:
+                    signals[i] = -1  # Sell signal
+    
+    return supertrend_line, trend_direction, signals
+
+
+def analyze_supertrend_sessions(high, low, close, supertrend_line, trend_direction, signals):
+    """
+    Analyze SuperTrend sessions to calculate % changes.
+    
+    Returns:
+        dict: {
+            'avg_long_session_pct': average % rise in long sessions,
+            'max_long_session_pct': maximum % rise in any long session,
+            'avg_short_session_pct': average % fall in short sessions,
+            'max_short_session_pct': maximum % fall in any short session,
+            'total_sessions': total number of sessions,
+            'long_sessions': number of long sessions,
+            'short_sessions': number of short sessions
+        }
+    """
+    if not signals or not any(signals):
+        return {
+            'avg_long_session_pct': 0.0,
+            'max_long_session_pct': 0.0,
+            'avg_short_session_pct': 0.0,
+            'max_short_session_pct': 0.0,
+            'total_sessions': 0,
+            'long_sessions': 0,
+            'short_sessions': 0
+        }
+    
+    long_session_changes = []
+    short_session_changes = []
+    current_session_start = None
+    current_session_type = None
+    current_session_high = None
+    current_session_low = None
+    
+    for i, signal in enumerate(signals):
+        if signal != 0:  # New session starts
+            # Close previous session if exists
+            if current_session_start is not None and current_session_type is not None:
+                if current_session_type == 1:  # Long session
+                    if current_session_high is not None:
+                        session_change = ((current_session_high - close[current_session_start]) / close[current_session_start]) * 100
+                        long_session_changes.append(session_change)
+                else:  # Short session
+                    if current_session_low is not None:
+                        session_change = ((close[current_session_start] - current_session_low) / close[current_session_start]) * 100
+                        short_session_changes.append(session_change)
+            
+            # Start new session
+            current_session_start = i
+            current_session_type = signal
+            current_session_high = high[i]
+            current_session_low = low[i]
+        
+        # Update session high/low
+        if current_session_start is not None:
+            if high[i] > current_session_high:
+                current_session_high = high[i]
+            if low[i] < current_session_low:
+                current_session_low = low[i]
+    
+    # Close final session
+    if current_session_start is not None and current_session_type is not None:
+        if current_session_type == 1:  # Long session
+            if current_session_high is not None:
+                session_change = ((current_session_high - close[current_session_start]) / close[current_session_start]) * 100
+                long_session_changes.append(session_change)
+        else:  # Short session
+            if current_session_low is not None:
+                session_change = ((close[current_session_start] - current_session_low) / close[current_session_start]) * 100
+                short_session_changes.append(session_change)
+    
+    # Calculate statistics
+    avg_long = float(np.mean(long_session_changes)) if long_session_changes else 0.0
+    max_long = float(np.max(long_session_changes)) if long_session_changes else 0.0
+    avg_short = float(np.mean(short_session_changes)) if short_session_changes else 0.0
+    max_short = float(np.max(short_session_changes)) if short_session_changes else 0.0
+    
+    return {
+        'avg_long_session_pct': avg_long,
+        'max_long_session_pct': max_long,
+        'avg_short_session_pct': avg_short,
+        'max_short_session_pct': max_short,
+        'total_sessions': len(long_session_changes) + len(short_session_changes),
+        'long_sessions': len(long_session_changes),
+        'short_sessions': len(short_session_changes)
+    }
+
+
+def get_30min_candles(pair: str, start: datetime, end: datetime):
+    """Get 30-minute candles for SuperTrend analysis."""
+    url = f"{BASE_URL}/products/{pair}/candles"
+    params = {
+        "start": iso_format(start),
+        "end": iso_format(end),
+        "granularity": 1800,  # 30 minutes = 1800 seconds
+    }
+    resp = requests.get(url, headers=HEADERS, params=params, timeout=30)
+    resp.raise_for_status()
+    data = resp.json()
+
+    if not isinstance(data, list):
+        msg = data.get("message", "Unknown error format")
+        raise RuntimeError(f"Candles error for {pair}: {msg}")
+
+    data.sort(key=lambda r: r[0])  # oldest -> newest
+    return data
+
+
+def get_supertrend_stats(pair: str, start: datetime, end: datetime, factor=3, atr_length=10):
+    """
+    Get SuperTrend statistics for a trading pair.
+    
+    Returns:
+        dict: SuperTrend session statistics
+    """
+    try:
+        # Get 30-minute candles
+        candles = get_30min_candles(pair, start, end)
+        
+        if len(candles) < atr_length + 10:  # Need minimum data for analysis
+            return {
+                'avg_long_session_pct': 0.0,
+                'max_long_session_pct': 0.0,
+                'avg_short_session_pct': 0.0,
+                'max_short_session_pct': 0.0,
+                'total_sessions': 0,
+                'long_sessions': 0,
+                'short_sessions': 0
+            }
+        
+        # Extract OHLC data
+        high = [float(row[2]) for row in candles]  # high is at index 2
+        low = [float(row[3]) for row in candles]    # low is at index 3
+        close = [float(row[4]) for row in candles] # close is at index 4
+        
+        # Calculate SuperTrend
+        supertrend_line, trend_direction, signals = calculate_supertrend(
+            high, low, close, factor, atr_length
+        )
+        
+        if supertrend_line is None:
+            return {
+                'avg_long_session_pct': 0.0,
+                'max_long_session_pct': 0.0,
+                'avg_short_session_pct': 0.0,
+                'max_short_session_pct': 0.0,
+                'total_sessions': 0,
+                'long_sessions': 0,
+                'short_sessions': 0
+            }
+        
+        # Analyze sessions
+        session_stats = analyze_supertrend_sessions(
+            high, low, close, supertrend_line, trend_direction, signals
+        )
+        
+        return session_stats
+        
+    except Exception as e:
+        print(f"Error calculating SuperTrend for {pair}: {e}")
+        return {
+            'avg_long_session_pct': 0.0,
+            'max_long_session_pct': 0.0,
+            'avg_short_session_pct': 0.0,
+            'max_short_session_pct': 0.0,
+            'total_sessions': 0,
+            'long_sessions': 0,
+            'short_sessions': 0
+        }
 
 
 # ----------------------------
@@ -379,6 +690,7 @@ def main(volatility_threshold: float = 2.0, days: int = 90, output_file: str = "
         print(f"Quote currency: {quote_currency}")
         print(f"Output format: {output_format.upper()}")
         print(f"Output file: {output_file}")
+        print("📊 SuperTrend Analysis: 30-min candles, Factor 3, ATR Length 10")
         print("Press Ctrl+C at any time to cancel the operation, or type 'q' when prompted.\n")
         
         # Safely remove existing file if it exists
@@ -457,11 +769,32 @@ def main(volatility_threshold: float = 2.0, days: int = 90, output_file: str = "
                     tqdm.write(f"  Warning: could not fetch min_market_funds for {pair}: {e}")
                     min_mkt_funds = "N/A"
 
+                # Get SuperTrend analysis (only for qualifying pairs)
+                tqdm.write(f"  Analyzing SuperTrend sessions...")
+                try:
+                    supertrend_stats = get_supertrend_stats(pair, start_date, end_date)
+                    tqdm.write(f"  SuperTrend: {supertrend_stats['total_sessions']} sessions, "
+                              f"Avg Long: {supertrend_stats['avg_long_session_pct']:.2f}%, "
+                              f"Max Long: {supertrend_stats['max_long_session_pct']:.2f}%, "
+                              f"Avg Short: {supertrend_stats['avg_short_session_pct']:.2f}%, "
+                              f"Max Short: {supertrend_stats['max_short_session_pct']:.2f}%")
+                except Exception as e:
+                    tqdm.write(f"  Warning: could not calculate SuperTrend for {pair}: {e}")
+                    supertrend_stats = {
+                        'avg_long_session_pct': 0.0,
+                        'max_long_session_pct': 0.0,
+                        'avg_short_session_pct': 0.0,
+                        'max_short_session_pct': 0.0,
+                        'total_sessions': 0,
+                        'long_sessions': 0,
+                        'short_sessions': 0
+                    }
+
                 # Save data based on format
                 if output_format == "excel":
-                    save_to_excel(pair, median_pct, median_volume, min_mkt_funds, wb)
+                    save_to_excel(pair, median_pct, median_volume, min_mkt_funds, supertrend_stats, wb)
                 else:
-                    if not save_to_csv(pair, median_pct, median_volume, min_mkt_funds, output_file):
+                    if not save_to_csv(pair, median_pct, median_volume, min_mkt_funds, supertrend_stats, output_file):
                         tqdm.write("❌ Failed to save data. Operation cancelled.")
                         progress_bar.close()
                         return
