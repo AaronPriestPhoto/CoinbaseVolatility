@@ -505,40 +505,73 @@ def analyze_supertrend_sessions(high, low, close, supertrend_line, trend_directi
 
 
 def get_30min_candles(pair: str, start: datetime, end: datetime):
-    """Get 30-minute candles for SuperTrend analysis."""
+    """Get 30-minute candles for SuperTrend analysis with chunked requests."""
     url = f"{BASE_URL}/products/{pair}/candles"
-    params = {
-        "start": iso_format(start),
-        "end": iso_format(end),
-        "granularity": 1800,  # 30 minutes = 1800 seconds
-    }
+    all_data = []
+    
+    # Calculate chunk size - Coinbase typically limits to ~300 candles per request
+    # For 30-minute candles, that's about 6.25 days per chunk
+    chunk_days = 6  # Conservative chunk size
+    chunk_size = timedelta(days=chunk_days)
+    
+    current_start = start
+    request_count = 0
+    max_requests = 20  # Safety limit
     
     try:
-        resp = requests.get(url, headers=HEADERS, params=params, timeout=30)
-        
-        # Handle specific error cases
-        if resp.status_code == 400:
-            # Try with 1-hour granularity as fallback
-            params["granularity"] = 3600  # 1 hour = 3600 seconds
+        while current_start < end and request_count < max_requests:
+            current_end = min(current_start + chunk_size, end)
+            
+            params = {
+                "start": iso_format(current_start),
+                "end": iso_format(current_end),
+                "granularity": 1800,  # 30 minutes = 1800 seconds
+            }
+            
             resp = requests.get(url, headers=HEADERS, params=params, timeout=30)
-            if resp.status_code != 200:
-                raise requests.HTTPError(f"400 Bad Request for {pair} - both 30min and 1hour granularities failed")
+            
+            if resp.status_code == 400:
+                # If 30-minute fails, try 1-hour granularity
+                params["granularity"] = 3600  # 1 hour = 3600 seconds
+                resp = requests.get(url, headers=HEADERS, params=params, timeout=30)
+                if resp.status_code != 200:
+                    print(f"Warning: {pair} doesn't support 30-minute or 1-hour granularity")
+                    return []
+            
+            resp.raise_for_status()
+            data = resp.json()
+
+            if not isinstance(data, list):
+                msg = data.get("message", "Unknown error format")
+                raise RuntimeError(f"Candles error for {pair}: {msg}")
+
+            all_data.extend(data)
+            current_start = current_end
+            request_count += 1
+            
+            # Rate limiting
+            time.sleep(RATE_LIMIT_SLEEP)
+
+        # Remove duplicates and sort
+        unique_data = []
+        seen_timestamps = set()
+        for candle in all_data:
+            timestamp = candle[0]
+            if timestamp not in seen_timestamps:
+                unique_data.append(candle)
+                seen_timestamps.add(timestamp)
         
-        resp.raise_for_status()
-        data = resp.json()
-
-        if not isinstance(data, list):
-            msg = data.get("message", "Unknown error format")
-            raise RuntimeError(f"Candles error for {pair}: {msg}")
-
-        data.sort(key=lambda r: r[0])  # oldest -> newest
-        return data
+        unique_data.sort(key=lambda r: r[0])  # oldest -> newest
+        return unique_data
         
     except requests.HTTPError as e:
         if "400" in str(e):
-            # Return empty data for pairs that don't support the granularity
+            print(f"Warning: {pair} API limitation - returning empty data")
             return []
         raise
+    except Exception as e:
+        print(f"Error fetching candles for {pair}: {e}")
+        return []
 
 
 def get_supertrend_stats(pair: str, start: datetime, end: datetime, factor=3, atr_length=10):
@@ -787,7 +820,7 @@ def main(volatility_threshold: float = 2.0, days: int = 90, output_file: str = "
                     min_mkt_funds = "N/A"
 
                 # Get SuperTrend analysis (only for qualifying pairs)
-                tqdm.write(f"  Analyzing SuperTrend sessions...")
+                tqdm.write(f"  Fetching 30-minute candles for SuperTrend analysis...")
                 try:
                     supertrend_stats = get_supertrend_stats(pair, start_date, end_date)
                     if supertrend_stats['total_sessions'] > 0:
@@ -797,9 +830,9 @@ def main(volatility_threshold: float = 2.0, days: int = 90, output_file: str = "
                                   f"Avg Short: {supertrend_stats['avg_short_session_pct']:.2f}%, "
                                   f"Max Short: {supertrend_stats['max_short_session_pct']:.2f}%")
                     else:
-                        tqdm.write(f"  SuperTrend: No sufficient data for analysis (insufficient granularity or data)")
+                        tqdm.write(f"  SuperTrend: No sufficient data for analysis")
                 except Exception as e:
-                    tqdm.write(f"  SuperTrend: No data available for {pair} (API limitation)")
+                    tqdm.write(f"  SuperTrend: No data available for {pair}")
                     supertrend_stats = {
                         'avg_long_session_pct': 0.0,
                         'max_long_session_pct': 0.0,
