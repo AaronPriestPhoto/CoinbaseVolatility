@@ -64,6 +64,7 @@ python CoinbaseVolatility.py --volatility 3 --days 60 --volume 2000000 --quote E
 | `--quote` | Quote currency (USD, BTC, ETH, USDC, USDT, etc.) | USD |
 | `--format` | Output format: excel or csv | excel |
 | `--output` | Output file name and path | volatility.xlsx |
+| `--supertrend` | Number of top volatile coins to analyze with SuperTrend (0 = disabled) | 0 |
 | `--help` | Show help message | - |
 
 ### Examples
@@ -83,6 +84,15 @@ python CoinbaseVolatility.py --quote USDC --format csv --output usdc_pairs.csv
 
 # Quick 7-day analysis of Ethereum ecosystem
 python CoinbaseVolatility.py --days 7 --quote ETH --output eth_weekly.xlsx
+
+# SuperTrend analysis for top 20 most volatile pairs
+python CoinbaseVolatility.py --supertrend 20
+
+# SuperTrend analysis for top 50 pairs with custom thresholds
+python CoinbaseVolatility.py --volatility 3 --days 30 --supertrend 50 --output supertrend_analysis.xlsx
+
+# Bitcoin pairs with SuperTrend for top 10
+python CoinbaseVolatility.py --quote BTC --supertrend 10 --volume 2000000
 ```
 
 ## Output
